@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blast Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=17">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<section id="title" class="screen dim">
+  <div class="logo"><span class="l1">BLAST</span><span class="l2">ARENA</span></div>
+  <div class="tagline">Couch bomb battles for up to 4 players</div>
+  <div class="lineup" id="lineup"></div>
+  <div class="menu">
+    <button class="btn primary" data-nav data-act="setup">Start Battle</button>
+    <button class="btn" data-nav data-act="help">How to Play</button>
+    <button class="btn" data-nav data-act="keys">Keyboard Controls</button>
+  </div>
+  <div class="hint" id="pad-hint"></div>
+  <div class="hint small">Menus: arrow keys / WASD / d-pad · Enter / A to select · Esc / B to go back</div>
+</section>
+
+<section id="setup" class="screen dim">
+  <h1>Battle Setup</h1>
+  <div class="setup-grid">
+    <div class="panel">
+      <h2>Players</h2>
+      <div id="slots"></div>
+    </div>
+    <div class="panel">
+      <h2>Rules</h2>
+      <div id="rules"></div>
+      <div class="arena-desc" id="arena-desc"></div>
+    </div>
+  </div>
+  <div class="setup-msg" id="setup-msg"></div>
+  <div class="menu horiz">
+    <button class="btn primary" data-nav data-act="start">Fight!</button>
+    <button class="btn" data-nav data-act="keys">Keys…</button>
+    <button class="btn" data-nav data-act="title">Back</button>
+  </div>
+  <div class="hint" id="pad-list"></div>
+</section>
+
+<section id="keys" class="screen dim">
+  <h1>Keyboard Controls</h1>
+  <div class="keys-grid">
+    <div class="panel" id="kb1-panel"></div>
+    <div class="panel" id="kb2-panel"></div>
+  </div>
+  <div class="setup-msg keys-msg" id="keys-msg"></div>
+  <div class="menu horiz">
+    <button class="btn primary" data-nav data-act="keys-back">Done</button>
+    <button class="btn" data-nav data-act="keys-reset">Reset to Defaults</button>
+  </div>
+  <div class="hint">Select an action (arrows + Enter, or click), then press the new key. Esc cancels.<br>If a key is already used elsewhere, the two bindings swap. Changes are saved automatically.</div>
+</section>
+
+<section id="help" class="screen dim">
+  <h1>How to Play</h1>
+  <div class="help-grid">
+    <div class="panel">
+      <h2>Goal</h2>
+      <p>Blow up bricks, collect power-ups and be the last one standing. Win the set number of rounds to take the match. When the timer runs out, <b>sudden death</b> starts: blocks fall from the sky in a spiral!</p>
+      <h2>Controls</h2>
+      <table class="keys">
+        <tr><th></th><th>Move</th><th>Bomb</th><th>Action</th></tr>
+        <tr id="help-kb1"></tr>
+        <tr id="help-kb2"></tr>
+        <tr><td>Gamepad</td><td>D-pad / stick</td><td><kbd>A</kbd> / <kbd>Y</kbd></td><td><kbd>B</kbd> / <kbd>X</kbd> / bumpers</td></tr>
+      </table>
+      <p class="small">Pause: <kbd>Esc</kbd> / <kbd>P</kbd> / <kbd>Start</kbd>. <b>Action</b> punches bombs (Power Glove) or uses your Llama's special move. Kick by walking into a bomb.</p>
+      <h2>Sideline revenge</h2>
+      <p>Died early? After a moment you float along the arena wall on a cloud. Move along the wall and press <b>Bomb</b> to throw a bomb 3 tiles into the arena. The dashed circle shows where it lands.</p>
+      <h2>Arenas</h2>
+      <ul class="arenas">
+        <li><b>Sunny Garden</b>: the classic.</li>
+        <li><b>Conveyor Factory</b>: belts carry players and bombs.</li>
+        <li><b>Warp Station</b>: warp holes teleport you and bombs.</li>
+        <li><b>Glacier Rink</b>: slippery ice, you keep sliding.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Power-ups</h2>
+      <div id="item-list" class="items"></div>
+      <h2 style="margin-top:16px">Llamas</h2>
+      <p class="small">Every Llama takes one hit for you and has its own trick:</p>
+      <div id="hopper-list" class="items"></div>
+    </div>
+  </div>
+  <div class="menu horiz">
+    <button class="btn" data-nav data-act="title">Back</button>
+  </div>
+</section>
+
+<section id="pause" class="screen dim">
+  <h1>Paused</h1>
+  <div class="menu">
+    <button class="btn primary" data-nav data-act="resume">Resume</button>
+    <button class="btn" data-nav data-act="restart">Restart Match</button>
+    <button class="btn" data-nav data-act="keys">Keyboard Controls</button>
+    <button class="btn" data-nav data-act="quit">Quit to Setup</button>
+  </div>
+</section>
+
+<section id="round" class="screen dim">
+  <h1 id="round-title"></h1>
+  <div id="round-sub" class="sub"></div>
+  <div id="scoreboard" class="scoreboard"></div>
+  <div class="hint">Press <kbd>Enter</kbd> / <kbd>A</kbd> to continue</div>
+</section>
+
+<section id="match" class="screen podium-screen">
+  <h1 id="match-title"></h1>
+  <div id="match-board" class="scoreboard hidden"></div>
+  <div class="menu horiz">
+    <button class="btn primary" data-nav data-act="rematch">Rematch</button>
+    <button class="btn" data-nav data-act="setup">Change Setup</button>
+    <button class="btn" data-nav data-act="title">Title</button>
+  </div>
+</section>
+
+<script src="js/config.js?v=17"></script>
+<script src="js/map.js?v=17"></script>
+<script src="js/game.js?v=17"></script>
+<script src="js/ai.js?v=17"></script>
+<script src="js/input.js?v=17"></script>
+<script src="js/audio.js?v=17"></script>
+<script src="js/render.js?v=17"></script>
+<script src="js/main.js?v=17"></script>
+</body>
+</html>

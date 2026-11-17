@@ -324,6 +324,7 @@
       players: buildPlayers(settings.slots), winsNeeded: settings.wins, roundTime: settings.roundTime,
       density: settings.density, diseases: settings.diseases, revenge: settings.revenge,
     });
+    AI.setup(game);
     demo = null;
     nextRound();
   }
@@ -381,6 +382,7 @@
       players: buildPlayers(['cpu-normal', 'cpu-hard', 'cpu-normal', 'cpu-easy'], shuffle(CHARACTERS.map(c => c.id))),
       winsNeeded: 99, roundTime: 60, density: 'normal', diseases: true, revenge: true,
     });
+    AI.setup(demo);
     demo.startRound(ARENAS[(Math.random() * ARENAS.length) | 0]);
     demo.phase = 'play'; demo.goTime = -10;
     demoRestartT = 0;

@@ -35,6 +35,7 @@ Pause: Esc, P or Start. Kick a bomb by walking into it. Line Bomb: press Bomb ag
   - Jump: leap 2 tiles over anything
   - Dash: sprint forward
   - Kick: walking into a bomb kicks it
+- **CPU personalities:** each CPU gets a random personality per match, shown as its name in the HUD. Bomber drops as many bombs as it can, Kicker kicks bombs at you (also place-and-kick), Boxer punches bombs over walls, Hunter chases players, Greedy grabs every power-up, and Coward keeps its distance. Easy CPUs notice your bombs late, dawdle and sometimes panic-run the wrong way.
 - **Final duel zoom** (setup, off by default): gently zooms in on the last two players near the end of a round.
 - **Sideline revenge** (can be switched off in setup): dead players float along the wall on a cloud. Move along the wall and press Bomb to throw a bomb 3 tiles into the arena.
 

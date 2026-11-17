@@ -2025,7 +2025,7 @@ const Renderer = (() => {
       pixelTransform();
       if (!p.alive) text(game.ghostActive(p) ? '☁' : '✖', px + ts * 0.42, py + ph * 0.5, ts * 0.55, game.ghostActive(p) ? '#fff' : '#ff4a3c', 'center');
       const nx = px + ts * 0.85;
-      text(p.tag, nx, py + ph * 0.3, ts * 0.32, p.style.light, 'left', 3);
+      text(p.tag, nx, py + ph * 0.3, ts * Math.min(0.32, 1.2 / p.tag.length), p.style.light, 'left', 3);
       const need = game.cfg.winsNeeded;
       for (let k = 0; k < Math.min(need, 7); k++) {
         ctx.setTransform(dpr * ts * 0.22, 0, 0, dpr * ts * 0.22, dpr * (nx + ts * 0.14 + k * ts * 0.26), dpr * (py + ph * 0.72));

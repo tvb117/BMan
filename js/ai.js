@@ -2,11 +2,62 @@
 
 // Computer-controlled players. They produce the same input structure as humans.
 const AI = (() => {
+  // aware: other players' bombs are only noticed once their fuse is below this (seconds)
+  // blunder: chance to panic-run somewhere random instead of to safety
+  // idle: chance to dawdle instead of doing something useful; noise: randomness in choosing goals
+  // skill: how reliably tricks (kick / punch) are pulled off
   const LEVELS = {
-    easy:   { think: 0.45, react: 0.35, aggro: 0.3, itemRange: 6,  bombChance: 0.45, hunt: 0.15, compensate: false },
-    normal: { think: 0.2,  react: 0.12, aggro: 0.7, itemRange: 10, bombChance: 0.85, hunt: 0.5,  compensate: true },
-    hard:   { think: 0.08, react: 0.03, aggro: 1.2, itemRange: 16, bombChance: 1.0,  hunt: 1.0,  compensate: true },
+    easy:   { think: 0.6,  react: 0.5,  aggro: 0.2, itemRange: 5,  bombChance: 0.35, hunt: 0.05, compensate: false,
+              aware: 1.1, blunder: 0.28, idle: 0.18, noise: 0.9, skill: 0.35 },
+    normal: { think: 0.26, react: 0.18, aggro: 0.6, itemRange: 9,  bombChance: 0.75, hunt: 0.4,  compensate: true,
+              aware: 1.8, blunder: 0.08, idle: 0.06, noise: 0.5, skill: 0.7 },
+    hard:   { think: 0.08, react: 0.03, aggro: 1.2, itemRange: 16, bombChance: 1.0,  hunt: 1.0,  compensate: true,
+              aware: Infinity, blunder: 0, idle: 0, noise: 0.1, skill: 1 },
   };
+
+  // Each CPU gets a random personality per match.
+  const PERSONAS = {
+    bomber: { label: 'Bomber', desc: 'drops as many bombs as it can', bombMin: -0.6, bombChance: 1.8, escapeLen: 9, items: { bomb: 3, fire: 2 }, aggro: 1.1 },
+    kicker: { label: 'Kicker', desc: 'loves kicking bombs at you', items: { kick: 8, speed: 1.5 }, kick: 1 },
+    boxer:  { label: 'Boxer',  desc: 'punches bombs over walls', items: { punch: 8, egg: 2 }, punch: 1, aggro: 1.1 },
+    hunter: { label: 'Hunter', desc: 'chases the nearest player', aggro: 1.7, huntAdd: 0.7, items: { speed: 2.5 } },
+    greedy: { label: 'Greedy', desc: 'grabs every power-up', itemMul: 1.8, itemRangeAdd: 6, aggro: 0.6 },
+    coward: { label: 'Coward', desc: 'keeps its distance', aggro: 0.4, huntAdd: -0.8, bombChance: 0.8, items: { speed: 2 } },
+  };
+  const NO_PERSONA = { label: 'CPU', items: {} };
+
+  // Give every bot in a new match a (different) personality.
+  function setup(game) {
+    const keys = Object.keys(PERSONAS);
+    for (let i = keys.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [keys[i], keys[j]] = [keys[j], keys[i]]; }
+    let k = 0;
+    for (const p of game.players) {
+      if (!p.bot) continue;
+      p.persona = keys[k++ % keys.length];
+      p.tag = PERSONAS[p.persona].label;
+      p.aiL = null;
+    }
+  }
+
+  // Level + personality (+ a little per-match randomness) combined.
+  function profile(p) {
+    if (p.aiL) return p.aiL;
+    const L = LEVELS[p.bot] || LEVELS.normal, P = PERSONAS[p.persona] || NO_PERSONA;
+    const jit = () => 0.8 + Math.random() * 0.4;
+    p.aiL = Object.assign({}, L, {
+      aggro: L.aggro * (P.aggro || 1) * jit(),
+      hunt: L.hunt + (P.huntAdd || 0) * Math.max(0.3, L.hunt + 0.3),
+      bombChance: Math.min(1, L.bombChance * (P.bombChance || 1) * jit()),
+      bombMin: P.bombMin !== undefined ? P.bombMin : 0.5,
+      escapeLen: P.escapeLen || 7,
+      itemRange: L.itemRange + (P.itemRangeAdd || 0),
+      itemMul: (P.itemMul || 1) * jit(),
+      items: P.items || {},
+      kick: Math.min(1, (P.kick || 0.25) * L.skill),
+      punch: Math.min(1, (P.punch || 0.25) * L.skill),
+    });
+    return p.aiL;
+  }
   const N = COLS * ROWS;
   const idx = (x, y) => y * COLS + x;
   const dist = new Int16Array(N), prev = new Int16Array(N), queue = new Int16Array(N);
@@ -31,7 +82,8 @@ const AI = (() => {
   }
 
   // Time until each tile is hit by an explosion (Infinity = safe, negative = burning now).
-  function computeDanger(game, self, extra) {
+  function computeDanger(game, self, extra, aware) {
+    if (aware === undefined) aware = Infinity;
     const D = new Float32Array(N).fill(Infinity);
     const list = [];
     for (const b of game.bombs) {
@@ -43,7 +95,7 @@ const AI = (() => {
       }
       let t = b.fuse;
       if (b.remote && !b.triggered) t = b.owner === self.id ? 2.0 : 0.7;
-      list.push({ tx, ty, range: b.range, pierce: b.pierce, t });
+      list.push({ tx, ty, range: b.range, pierce: b.pierce, t, owner: b.owner });
     }
     if (extra) list.push(extra);
     const tiles = list.map(e => blastTiles(game, e.tx, e.ty, e.range, e.pierce));
@@ -57,7 +109,11 @@ const AI = (() => {
       }
       if (!changed) break;
     }
-    for (let i = 0; i < list.length; i++) for (const k of tiles[i]) if (list[i].t < D[k]) D[k] = list[i].t;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e !== extra && e.owner !== self.id && e.t > aware) continue; // hasn't noticed this bomb yet
+      for (const k of tiles[i]) if (e.t < D[k]) D[k] = e.t;
+    }
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (game.flames[y][x]) D[idx(x, y)] = -1;
     if (game.sudden) {
       let tt = game.sdTimer;
@@ -76,7 +132,7 @@ const AI = (() => {
   function dangerFor(game, p) {
     if (cacheGame !== game || cacheTime !== game.time) { cacheGame = game; cacheTime = game.time; cacheDanger = new Map(); }
     let D = cacheDanger.get(p.id);
-    if (!D) { D = computeDanger(game, p, null); cacheDanger.set(p.id, D); }
+    if (!D) { D = computeDanger(game, p, null, profile(p).aware); cacheDanger.set(p.id, D); }
     return D;
   }
 
@@ -149,15 +205,58 @@ const AI = (() => {
     return v;
   }
 
+  const tileOf = e => idx(Math.floor(e.x), Math.floor(e.y));
+  // Is there an enemy in the open lane starting next to (bx,by) in direction d?
+  function laneHasEnemy(game, bx, by, d, enemies, maxLen) {
+    const set = new Set(enemies.map(tileOf));
+    let x = bx, y = by;
+    for (let i = 1; i <= maxLen; i++) {
+      x += d.x; y += d.y;
+      if (!inBounds(x, y) || game.grid[y][x] !== EMPTY || game.bombAt(x, y)) return false;
+      if (set.has(idx(x, y))) return true;
+    }
+    return false;
+  }
+
+  // Kick or punch a neighbouring bomb towards an enemy.
+  function tryTrick(game, p, s, L, enemies, out) {
+    const cx = Math.floor(p.x), cy = Math.floor(p.y);
+    const kick = game.canKick(p) && Math.random() < L.kick;
+    const punch = game.canPunch(p) && Math.random() < L.punch;
+    if (!kick && !punch) return false;
+    for (const dn of DIR_NAMES) {
+      const d = DIRS[dn];
+      const bx = cx + d.x, by = cy + d.y;
+      if (!inBounds(bx, by)) continue;
+      const b = game.bombAt(bx, by);
+      if (!b || b.state !== 'idle') continue;
+      if (kick && laneHasEnemy(game, bx, by, d, enemies, 8)) { s.force = { dir: dn, t: 0.3 }; s.path = []; return true; }
+      if (punch) {
+        const lx = bx + d.x * RULES.punchDist, ly = by + d.y * RULES.punchDist;
+        if (enemies.some(e => Math.abs(e.x - lx - 0.5) + Math.abs(e.y - ly - 0.5) <= 1.5)) {
+          out.dir = dn; out.action = true; s.path = []; return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function think(game, p, s, D, L, out) {
     const cx = Math.floor(p.x), cy = Math.floor(p.y), ci = idx(cx, cy);
     const enemies = game.players.filter(o => o.alive && o !== p);
 
-    // 1) In danger: run!
+    // 0) Kick / punch a bomb at someone
+    if (tryTrick(game, p, s, L, enemies, out)) return;
+
+    // 1) In danger: run! (clumsy bots sometimes panic and run the wrong way)
     if (D[ci] !== Infinity) {
       const r = bfs(game, p, D, 'timed');
       let target = -1;
-      for (const j of r.order) if (D[j] === Infinity) { target = j; break; }
+      if (Math.random() < L.blunder && r.order.length > 2) {
+        const near = r.order.slice(1, 8);
+        target = near[(Math.random() * near.length) | 0];
+      }
+      if (target < 0) for (const j of r.order) if (D[j] === Infinity) { target = j; break; }
       if (target < 0) {
         let best = -Infinity;
         for (const j of r.order) if (D[j] > best) { best = D[j]; target = j; }
@@ -181,22 +280,47 @@ const AI = (() => {
 
     // 3) Place a bomb here?
     const canBomb = p.bombsOut < p.stats.bombs && !(p.disease && p.disease.type === 'constipation') && !game.bombAt(cx, cy);
+    // Drop & punch: place a bomb and immediately punch it at a nearby enemy
+    if (canBomb && game.canPunch(p) && Math.random() < L.punch) {
+      for (const dn of DIR_NAMES) {
+        const d = DIRS[dn], lx = cx + d.x * RULES.punchDist, ly = cy + d.y * RULES.punchDist;
+        if (enemies.some(e => Math.abs(e.x - lx - 0.5) + Math.abs(e.y - ly - 0.5) <= 1.5)) {
+          out.bomb = true; out.dir = dn; out.action = true; s.path = []; s.thinkT = Math.min(s.thinkT, 0.15);
+          return;
+        }
+      }
+    }
     if (canBomb) {
       const val = bombValue(game, p, cx, cy, enemies, L);
-      if (val > 0.5 && Math.random() < L.bombChance) {
+      if (val > L.bombMin && Math.random() < L.bombChance) {
         const extra = { tx: cx, ty: cy, range: game.bombRange(p), pierce: p.stats.pierce, t: p.stats.remote ? 2.0 : RULES.fuse };
-        const D2 = computeDanger(game, p, extra);
+        const D2 = computeDanger(game, p, extra, L.aware);
         const r = bfs(game, p, D2, 'timed');
         let target = -1;
         for (const j of r.order) if (D2[j] === Infinity && j !== ci) { target = j; break; }
         if (target >= 0) {
           const path = buildPath(target);
-          if (path.length <= 7) { out.bomb = true; s.path = path; s.mode = 'flee'; return; }
+          if (path.length <= L.escapeLen) {
+            out.bomb = true; s.path = path; s.mode = 'flee';
+            // Place & kick: step behind the bomb and kick it down a lane at an enemy
+            if (game.canKick(p) && Math.random() < L.kick) {
+              for (const dn of DIR_NAMES) {
+                const d = DIRS[dn], sx = cx - d.x, sy = cy - d.y;
+                if (!inBounds(sx, sy) || !walkable(game, sx, sy, false) || D[idx(sx, sy)] < 0) continue;
+                if (!laneHasEnemy(game, cx, cy, d, enemies, 8)) continue;
+                s.kickPlan = { stand: idx(sx, sy), dir: dn, until: game.time + 1.0 };
+                s.path = [idx(sx, sy)];
+                break;
+              }
+            }
+            return;
+          }
         }
       }
     }
 
-    // 4) Pick a goal
+    // 4) Pick a goal (or just dawdle)
+    if (Math.random() < L.idle) { s.path = []; s.thinkT = 0.4 + Math.random() * 0.8; return; }
     const r = bfs(game, p, D, 'strict');
     let best = -1, bestScore = 0.05;
     let stepDist = new Map();
@@ -209,14 +333,15 @@ const AI = (() => {
       const x = j % COLS, y = (j / COLS) | 0;
       let sc = 0;
       const pk = game.pickups[y][x];
-      if (pk && pk.age >= 0 && pk.type !== 'skull' && d <= L.itemRange) sc += 6;
+      if (pk && pk.age >= 0 && pk.type !== 'skull' && d <= L.itemRange) sc += 6 * L.itemMul * (L.items[pk.type] || 1);
       if (p.bombsOut < p.stats.bombs) sc += Math.max(0, bombValue(game, p, x, y, enemies, L));
-      if (enemies.length && L.hunt > 0) {
+      if (enemies.length && L.hunt !== 0) {
         let md = 99;
         for (const e of enemies) md = Math.min(md, Math.abs(e.x - x - 0.5) + Math.abs(e.y - y - 0.5));
         sc += L.hunt * Math.max(0, 6 - md) * 0.15;
       }
       if (j === ci) sc *= 1.1;
+      if (L.noise) sc *= 1 + (Math.random() - 0.5) * L.noise;
       sc = sc / (1 + d * 0.35);
       if (sc > bestScore) { bestScore = sc; best = j; }
     }
@@ -328,7 +453,7 @@ const AI = (() => {
 
   function control(game, p, dt) {
     const out = { dir: null, dir2: null, bomb: false, action: false };
-    const L = LEVELS[p.bot] || LEVELS.normal;
+    const L = profile(p);
     if (!p.alive) {
       if (game.phase === 'play' && game.ghostActive(p)) return ghostControl(game, p, dt, L, p.ai || (p.ai = { thinkT: 0, path: [], mode: 'roam', goal: -1, goalT: 0 }));
       return out;
@@ -337,6 +462,24 @@ const AI = (() => {
     const s = p.ai || (p.ai = { thinkT: Math.random() * 0.3, path: [], mode: 'roam', goal: -1, goalT: 0 });
     const D = dangerFor(game, p);
     const ci = idx(Math.floor(p.x), Math.floor(p.y));
+    // Place & kick in progress
+    if (s.kickPlan) {
+      const kp = s.kickPlan, d = DIRS[kp.dir];
+      const sx = kp.stand % COLS, sy = (kp.stand / COLS) | 0;
+      const b = game.bombAt(sx + d.x, sy + d.y);
+      if (!b || b.state !== 'idle' || game.time > kp.until) { s.kickPlan = null; s.path = []; s.thinkT = 0; }
+      else {
+        out.dir = ci === kp.stand ? kp.dir : followPath(game, p, s);
+        if (!out.dir) { s.kickPlan = null; s.thinkT = 0; }
+        return out;
+      }
+    }
+    // Walking into a bomb to kick it
+    if (s.force) {
+      s.force.t -= dt;
+      if (s.force.t > 0) { out.dir = s.force.dir; return out; }
+      s.force = null; s.thinkT = 0;
+    }
     s.thinkT -= dt;
     if (D[ci] !== Infinity && s.mode !== 'flee') s.thinkT = Math.min(s.thinkT, L.react);
     if (s.mode !== 'flee' && s.path.length && D[s.path[0]] !== Infinity) { s.path = []; s.thinkT = Math.min(s.thinkT, L.react); }
@@ -357,5 +500,5 @@ const AI = (() => {
     return out;
   }
 
-  return { control, LEVELS };
+  return { control, setup, LEVELS, PERSONAS };
 })();
